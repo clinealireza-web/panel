@@ -5067,9 +5067,15 @@ func main() {
 	fileServer := http.FileServer(http.Dir(staticDir))
 	mux.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+		// The public subscription page (/sub/<uuid>) loads these assets; a
+		// visitor who reached a valid sub page is already past the gate.
 		if disguiseEnabled() && !disguiseGateCookie(r) {
-			writeDisguise404(w)
-			return
+			p := r.URL.Path
+			subAsset := p == "/static/js/sub-head.js" || p == "/static/js/sub.js" || p == "/static/css/sub.css"
+			if !subAsset {
+				writeDisguise404(w)
+				return
+			}
 		}
 		http.StripPrefix("/static/", fileServer).ServeHTTP(w, r)
 	})
