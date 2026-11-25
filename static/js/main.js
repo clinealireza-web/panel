@@ -947,6 +947,7 @@ function loadSettings() {
     api('/api/settings').then(function(s) {
       var el = $id('set-config-prefix');
       if (el) el.value = (s && s.config_name_prefix) ? s.config_name_prefix : 'White-';
+      loadDisguiseUI(s);
     }).catch(function() {});
   } catch(e) {}
   checkPanelUpdate();
@@ -958,6 +959,51 @@ async function saveConfigPrefix() {
     await api('/api/settings', {method: 'POST', body: {config_name_prefix: v}});
     if (el) el.value = v;
     toast(LANG === 'en' ? 'Saved' : 'ذخیره شد', 'ok');
+  } catch(e) { toast(e.message, 'err'); }
+}
+function loadDisguiseUI(s) {
+  var sw = $id('disguise-switch');
+  if (sw) {
+    sw.classList.toggle('on', !!(s && s.disguise_enabled));
+    sw.setAttribute('aria-pressed', s && s.disguise_enabled ? 'true' : 'false');
+  }
+  var name = $id('disguise-name');
+  if (name) name.value = (s && s.disguise_site_name) || '';
+  var tag = $id('disguise-tagline');
+  if (tag) tag.value = (s && s.disguise_site_tagline) || '';
+  var hint = $id('disguise-configured-hint');
+  if (hint) hint.textContent = (s && s.disguise_configured) ? 'gate key is set' : 'no gate key set yet';
+}
+function toggleDisguise(btn) {
+  btn.classList.toggle('on');
+  btn.setAttribute('aria-pressed', btn.classList.contains('on') ? 'true' : 'false');
+}
+function rotateDisguiseSecret() {
+  var el = $id('disguise-secret');
+  if (!el) return;
+  var chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+  var out = '';
+  for (var i = 0; i < 12; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  el.value = out;
+}
+async function saveDisguise() {
+  var sw = $id('disguise-switch'), secret = $id('disguise-secret');
+  var enabling = sw && sw.classList.contains('on');
+  var secretVal = (secret && secret.value || '').trim();
+  if (enabling && !secretVal) {
+    toast(LANG === 'en' ? 'Set a gate key first' : 'اول کلید مخفی را تنظیم کنید', 'err');
+    return;
+  }
+  try {
+    var body = {
+      disguise_enabled: enabling,
+      disguise_site_name: ($id('disguise-name') && $id('disguise-name').value || '').trim(),
+      disguise_site_tagline: ($id('disguise-tagline') && $id('disguise-tagline').value || '').trim()
+    };
+    if (secretVal) body.disguise_secret = secretVal;
+    await api('/api/settings', {method: 'POST', body: body});
+    toast(LANG === 'en' ? 'Stealth saved' : 'Stealth ذخیره شد', 'ok');
+    if (secretVal) $id('disguise-configured-hint').textContent = 'gate key is set';
   } catch(e) { toast(e.message, 'err'); }
 }
 var ALL_ADV_IB = [];

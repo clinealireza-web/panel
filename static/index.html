@@ -557,6 +557,38 @@
           </div>
         </div>
         <div class="spd-acc" style="margin-bottom:10px">
+          <button type="button" class="spd-acc-head" onclick="spdToggleAcc('set-stealth',this)" aria-expanded="false"><span class="spd-acc-title"><strong>Stealth</strong></span><span class="material-symbols-outlined spd-acc-arrow">expand_more</span></button>
+          <div class="spd-acc-body" id="acc-set-stealth">
+            <div class="panel settings-box">
+              <div class="panel-h"><span class="glow">Stealth</span></div>
+              <div class="px-hint">پوشاندن پنل: هر بازدیدکننده‌ای که کلید مخفی نداشته باشد فقط یک وب‌سایت عادی می‌بیند. دسترسی شما به‌صورت <code dir="ltr">https://دامنه/&lt;کلید&gt;</code> است. مسیرهای اشتراک و اتصال (sub/ws/xhttp) تحت تأثیر قرار نمی‌گیرند.</div>
+              <div class="set-row" style="margin-top:10px">
+                <span class="set-lbl">فعالی‌سازی Stealth</span>
+                <button type="button" class="ios-switch" id="disguise-switch" onclick="toggleDisguise(this)" aria-pressed="false"></button>
+              </div>
+              <div class="set-row" style="margin-top:10px">
+                <span class="set-lbl">نام سایت پوشش</span>
+                <input type="text" id="disguise-name" dir="ltr" placeholder="Aria Cloud" style="flex:1">
+              </div>
+              <div class="set-row" style="margin-top:10px">
+                <span class="set-lbl">شعار سایت</span>
+                <input type="text" id="disguise-tagline" dir="ltr" placeholder="Smart software for modern teams" style="flex:1">
+              </div>
+              <div class="set-row" style="margin-top:10px">
+                <span class="set-lbl">کلید مخفی</span>
+                <div style="display:flex;gap:8px;flex:1">
+                  <input type="text" id="disguise-secret" dir="ltr" placeholder="my-gate-77" style="flex:1">
+                  <button class="btn btn-g" type="button" onclick="rotateDisguiseSecret()">دستیار</button>
+                </div>
+              </div>
+              <div class="px-hint" style="margin-top:8px" id="disguise-configured-hint" dir="ltr"></div>
+              <div style="display:flex;gap:8px;margin-top:12px">
+                <button class="btn btn-p" style="flex:1" onclick="saveDisguise()">ذخیره Stealth</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="spd-acc" style="margin-bottom:10px">
           <button type="button" class="spd-acc-head" onclick="spdToggleAcc('set-adv',this)" aria-expanded="false"><span class="spd-acc-title"><strong data-i18n="advanced">Advanced</strong></span><span class="material-symbols-outlined spd-acc-arrow">expand_more</span></button>
           <div class="spd-acc-body" id="acc-set-adv">
             <div class="panel settings-box">

@@ -701,6 +701,12 @@ func checkAuth(r *http.Request) bool {
 func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !checkAuth(r) {
+			// Under disguise the whole /api surface must not answer with
+			// panel-flavored JSON: unauthenticated probes get the cover 404.
+			if disguiseEnabled() && !disguiseGateCookie(r) {
+				writeDisguise404(w)
+				return
+			}
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"ok": false, "detail": "unauthorized"})
 			return
 		}
@@ -719,6 +725,12 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	currentHash := State.Password
 	State.mu.RUnlock()
 	if subtle.ConstantTimeCompare([]byte(hashPassword(password)), []byte(currentHash)) != 1 {
+		// A wrong-password probe should not confirm "this is a panel with a
+		// login API": under disguise the response stays neutral.
+		if disguiseEnabled() && !disguiseGateCookie(r) {
+			writeDisguise404(w)
+			return
+		}
 		writeJSON(w, http.StatusUnauthorized, map[string]any{
 			"ok": false, "detail": "رمز عبور اشتباه است", "error": "رمز عبور اشتباه است",
 		})
@@ -4070,7 +4082,11 @@ func handleAPISub(w http.ResponseWriter, r *http.Request, rawUUID string) {
 	}
 	if u == nil {
 		State.mu.RUnlock()
-		writeJSON(w, http.StatusNotFound, map[string]any{"ok": false, "detail": "کاربر پیدا نشد"})
+		if disguiseEnabled() {
+			writeDisguise404(w)
+			return
+		}
+		writeJSON(w, http.StatusNotFound, map[string]any{"ok": false, "detail": "کاربر یافت نشد"})
 		return
 	}
 	cp := *u
@@ -4225,6 +4241,10 @@ func handleSubPage(w http.ResponseWriter, r *http.Request, rawUUID string) {
 	}
 	State.mu.RUnlock()
 	if !found {
+		if disguiseEnabled() {
+			writeDisguise404(w)
+			return
+		}
 		http.Error(w, "Subscription not found", http.StatusNotFound)
 		return
 	}
@@ -4617,6 +4637,10 @@ func handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 		s[k] = v
 	}
 	State.mu.RUnlock()
+	// Never echo the gate secret back to the client, even to the
+	// authenticated admin UI: the operator sets it, the UI only toggles.
+	delete(s, "disguise_secret")
+	s["disguise_configured"] = disguiseSecret() != ""
 	s["ok"] = true
 	writeJSON(w, http.StatusOK, s)
 }
@@ -4629,6 +4653,8 @@ func handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		"auto_ip_rotation": true, "server_ip": true,
 		"country": true, "country_code": true, "country_flag": true, "domain": true,
 		"config_name_prefix": true,
+		"disguise_enabled": true, "disguise_secret": true,
+		"disguise_site_name": true, "disguise_site_tagline": true,
 	}
 	State.mu.Lock()
 	for k, v := range body {
@@ -4909,6 +4935,13 @@ func handleSettingsRestore(w http.ResponseWriter, r *http.Request) {
 	// 5. Restore Settings
 	if sMap, ok := stateMap["settings"].(map[string]any); ok && sMap != nil {
 		for k, v := range sMap {
+			// A backup made before the gate key existed would otherwise wipe
+			// it and lock the operator out of a disguised panel.
+			if k == "disguise_secret" {
+				if sv, _ := v.(string); strings.TrimSpace(sv) == "" {
+					continue
+				}
+			}
 			State.Settings[k] = v
 		}
 	}
@@ -5034,27 +5067,65 @@ func main() {
 	fileServer := http.FileServer(http.Dir(staticDir))
 	mux.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+		if disguiseEnabled() && !disguiseGateCookie(r) {
+			writeDisguise404(w)
+			return
+		}
 		http.StripPrefix("/static/", fileServer).ServeHTTP(w, r)
 	})
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Secret gate: /<secret> sets the gate cookie and shows the login page.
+		if sec := disguiseSecret(); sec != "" && r.URL.Path == "/"+sec {
+			disguiseSetGateCookie(w)
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
 		w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+		gated := disguiseEnabled() && !disguiseGateCookie(r)
 		switch r.URL.Path {
 		case "/", "/white", "/dashboard":
+			if gated {
+				writeDisguise404(w)
+				return
+			}
 			http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
 			return
 		case "/login":
+			if gated {
+				writeDisguise404(w)
+				return
+			}
 			http.ServeFile(w, r, filepath.Join(staticDir, "login.html"))
+			return
+		}
+		if gated {
+			// Cover-site pages under disguise; plain static 404 otherwise.
+			for _, p := range []string{"/features", "/pricing", "/contact"} {
+				if r.URL.Path == p {
+					w.Header().Set("Content-Type", "text/html; charset=utf-8")
+					w.Header().Set("Cache-Control", "no-store")
+					_, _ = w.Write([]byte(coverPageHTML(strings.TrimPrefix(p, "/"), "")))
+					return
+				}
+			}
+			writeDisguise404(w)
 			return
 		}
 		fileServer.ServeHTTP(w, r)
 	})
 
-	mux.HandleFunc("/api/login", handleLogin)
+	mux.HandleFunc("/api/login", disguiseGuard(false, handleLogin))
 	mux.HandleFunc("/api/logout", handleLogout)
-	mux.HandleFunc("/api/me", handleMe)
-	mux.HandleFunc("/api/server-info", handleServerInfo)
+	mux.HandleFunc("/api/me", disguiseGuard(false, handleMe))
+	mux.HandleFunc("/api/server-info", disguiseGuard(false, handleServerInfo))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		// Keep the endpoint for container healthchecks but make the body
+		// look like a generic app status page when disguise is on.
+		if disguiseEnabled() && !disguiseGateCookie(r) {
+			writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "service": "web"})
+			return
+		}
 		BotManager.mu.RLock()
 		botPolling := BotManager.isPolling
 		botScheduling := BotManager.isScheduling
